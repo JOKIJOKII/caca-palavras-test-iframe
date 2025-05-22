@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Caça-Palavras</title>
+<style>
+  *{box-sizing:border-box;user-select:none;margin:0;padding:0}
+  body{font-family:sans-serif;text-align:center;padding:24px}
+  h1{margin-bottom:16px}
+
+  /* --- container mantém grid e canvas alinhados --- */
+  .grid-container{position:relative;display:inline-block}
+
+  /* --- grade --- */
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(10,32px);
+    grid-template-rows:repeat(10,32px);
+    gap:2px;
+    position:relative;
+    z-index:1;
+  }
+  .cell{
+    width:32px;height:32px;
+    border:1px solid #ccc;
+    display:flex;justify-content:center;align-items:center;
+    font-weight:bold;
+    background:#fff;
+  }
+  .cell.selected{background:#add8e6}
+  .cell.found{background:gold}
+
+  /* --- canvas da linha guia --- */
+  #lineCanvas{
+    position:absolute;top:0;left:0;
+    pointer-events:none;          /* não bloqueia cliques */
+    z-index:2;
+  }
+
+  /* --- lista de palavras --- */
+  #wordList{margin-top:20px}
+  #wordList div{margin:4px 0}
+  .found-word{text-decoration:line-through;color:green}
+</style>
+</head>
+
+<body>
+<h1>Caça-Palavras</h1>
+
+<div class="grid-container">
+  <div id="grid" class="grid"></div>
+  <canvas id="lineCanvas"></canvas>
+</div>
+
+<div id="wordList"></div>
+
+<script>
+/* ------------ dados básicos ------------ */
+const TODAS_PALAVRAS = [
+  "GATO","CACHORRO","ESCOLA","FLORESTA","COMPUTADOR",
+  "JAVASCRIPT","PLANETA","OCEANO","MONTANHA","DINOSSAURO",
+  "ESPORTES","MÚSICA","FANTASMA","ZUMBI","CÉREBRO",
+  "BRINQUEDO","ELEFANTE","DRAGÃO","UNIVERSO","FÓRMULA"
+];
+const TAM = 10;                            // tamanho da grade
+const DIRECOES = [                         // 8 direções
+  {dx:1, dy:0},  {dx:-1,dy:0},
+  {dx:0, dy:1},  {dx:0, dy:-1},
+  {dx:1, dy:1},  {dx:-1,dy:-1},
+  {dx:1, dy:-1}, {dx:-1,dy:1},
+];
+
+/* ------------ utilidades ------------ */
+const randInt = (max)=>Math.floor(Math.random()*max);
+function escolher(lista,qtd){
+  const copia=[...lista], out=[];
+  for(let i=0;i<qtd;i++) out.push(copia.splice(randInt(copia.length),1)[0]);
+  return out;
+}
+
+/* ------------ sorteio das palavras ------------ */
+const PALAVRAS_JOGO = escolher(TODAS_PALAVRAS,5);
+
+/* ------------ criação da grade ------------ */
+const grid = Array.from({length:TAM},()=>Array(TAM).fill(""));
+function cabe(palavra,x,y,{dx,dy}){
+  const len=palavra.length;
+  const xf = x+dx*(len-1), yf = y+dy*(len-1);
+  if(xf<0||xf>=TAM||yf<0||yf>=TAM) return false;
+  for(let i=0;i<len;i++){
+    const cx=x+dx*i, cy=y+dy*i;
+    if(grid[cy][cx]!=="" && grid[cy][cx]!==palavra[i]) return false;
+  }
+  return true;
+}
+function colocar(palavra){
+  for(let tent=0;tent<500;tent++){
+    const dir=DIRECOES[randInt(DIRECOES.length)];
+    const x=randInt(TAM), y=randInt(TAM);
+    if(cabe(palavra,x,y,dir)){
+      for(let i=0;i<palavra.length;i++){
+        grid[y+dir.dy*i][x+dir.dx*i]=palavra[i];
+      }
+      return;
+    }
+  }
+  console.warn("Não coube:",palavra);
+}
+PALAVRAS_JOGO.forEach(p=>colocar(p));
+
+/* preenche vazios com letras aleatórias */
+const ALFABETO="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+for(let y=0;y<TAM;y++){
+  for(let x=0;x<TAM;x++){
+    if(!grid[y][x]) grid[y][x]=ALFABETO[randInt(ALFABETO.length)];
+  }
+}
+
+/* ------------ renderização da grade ------------ */
+const gridEl=document.getElementById("grid");
+for(let y=0;y<TAM;y++){
+  for(let x=0;x<TAM;x++){
+    const div=document.createElement("div");
+    div.className="cell";
+    div.textContent=grid[y][x];
+    div.dataset.x=x; div.dataset.y=y;
+    gridEl.appendChild(div);
+  }
+}
+
+/* ------------ lista de palavras ------------ */
+const listEl=document.getElementById("wordList");
+PALAVRAS_JOGO.forEach(w=>{
+  const d=document.createElement("div");
+  d.id="word-"+w; d.textContent=w;
+  listEl.appendChild(d);
+});
+
+/* ------------ canvas da linha ------------ */
+const canvas=document.getElementById("lineCanvas");
+const ctx=canvas.getContext("2d");
+function ajustarCanvas(){
+  const rect=gridEl.getBoundingClientRect();
+  canvas.width=rect.width;
+  canvas.height=rect.height;
+}
+ajustarCanvas(); window.addEventListener("resize",ajustarCanvas);
+
+/* ------------ helpers para linha e seleção ------------ */
+const gridRect=()=>gridEl.getBoundingClientRect();
+function centroCelula(cell){
+  const r=cell.getBoundingClientRect(), g=gridRect();
+  return {x:r.left-g.left+r.width/2, y:r.top-g.top+r.height/2};
+}
+function getLineCells(x0,y0,x1,y1){
+  const dx=Math.sign(x1-x0), dy=Math.sign(y1-y0);
+  const len=Math.max(Math.abs(x1-x0),Math.abs(y1-y0))+1;
+  const out=[];
+  for(let i=0;i<len;i++){
+    const x=x0+dx*i, y=y0+dy*i;
+    if(x>=0&&x<TAM&&y>=0&&y<TAM) out.push({x,y});
+  } return out;
+}
+function clearSelection(){
+  document.querySelectorAll(".cell.selected").forEach(c=>c.classList.remove("selected"));
+}
+
+/* ------------ interação de mouse ------------ */
+let startCell=null, dragging=false;
+
+gridEl.addEventListener("mousedown",e=>{
+  if(!e.target.classList.contains("cell")) return;
+  startCell=e.target; dragging=true;
+});
+gridEl.addEventListener("mousemove",e=>{
+  if(!dragging||!startCell||!e.target.classList.contains("cell")) return;
+  const startC=center=startCell, endC=e.target;
+  const a=centroCelula(startC); const b=centroCelula(endC);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle="rgba(0,0,255,.35)"; ctx.lineWidth=6; ctx.lineCap="round";
+  ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+});
+gridEl.addEventListener("mouseup",e=>{
+  if(!dragging||!startCell||!e.target.classList.contains("cell")){reset(); return;}
+  const endCell=e.target;
+  const sx=+startCell.dataset.x, sy=+startCell.dataset.y;
+  const ex=+endCell.dataset.x,   ey=+endCell.dataset.y;
+  const linha=getLineCells(sx,sy,ex,ey);
+
+  clearSelection();
+  const palavra=linha.map(c=>grid[c.y][c.x]).join("");
+  const palavraInv=palavra.split("").reverse().join("");
+  let encontrada=null;
+  if(PALAVRAS_JOGO.includes(palavra)) encontrada=palavra;
+  else if(PALAVRAS_JOGO.includes(palavraInv)) encontrada=palavraInv;
+
+  if(encontrada){
+    linha.forEach(c=>{
+      document.querySelector(`.cell[data-x='${c.x}'][data-y='${c.y}']`)
+              .classList.add("selected","found");
+    });
+    document.getElementById("word-"+encontrada).classList.add("found-word");
+  }
+  reset();
+});
+
+function reset(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  dragging=false; startCell=null;
+}
+</script>
+</body>
+</html>
